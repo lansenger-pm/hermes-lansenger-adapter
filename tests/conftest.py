@@ -41,13 +41,17 @@ class _StubPlatformConfig:
 
 
 class _StubSendResult:
-    def __init__(self, success=True, message_id=None, error=None, raw_response=None, retryable=False, continuation_message_ids=()):
+    def __init__(self, success=True, message_id=None, error=None, raw_response=None,
+                 retryable=False, retry_after=None, continuation_message_ids=(),
+                 error_kind=None, **kwargs):
         self.success = success
         self.message_id = message_id
         self.error = error
         self.raw_response = raw_response
         self.retryable = retryable
+        self.retry_after = retry_after
         self.continuation_message_ids = continuation_message_ids
+        self.error_kind = error_kind
 
 
 class _StubMessageType:
@@ -152,6 +156,17 @@ gw_base.SendResult = _StubSendResult
 gw_base.SessionSource = _StubSessionSource
 gw_base.cache_image_from_bytes = _stub_cache_image_from_bytes
 gw_base.cache_document_from_bytes = _stub_cache_document_from_bytes
+
+# Stub classify_send_error for adapters that use typed send errors (Hermes v0.19+).
+# The real implementation lives in gateway.platforms.base; the stub keeps tests
+# independent of the installed Hermes version.
+def _stub_classify_send_error(exc=None, error_text=""):
+    return "unknown"
+gw_base.classify_send_error = _stub_classify_send_error
+gw_base.SEND_ERROR_KINDS = frozenset({
+    "too_long", "bad_format", "forbidden", "not_found",
+    "rate_limited", "transient", "unknown",
+})
 sys.modules["gateway.platforms.base"] = gw_base
 
 from lansenger.adapter import (

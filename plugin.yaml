@@ -1,5 +1,5 @@
 name: hermes-lansenger-adapter
-version: 2.9.16
+version: 2.9.17
 description: Lansenger (蓝信) platform adapter + messaging tools for Hermes Agent — WebSocket gateway, text/markdown/file/image/linkCard sending, message revocation
 author: Lanxin Mobile (Beijing) Technology Co., ltd.
 manifest_version: 1

@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.9.17] - 2026-08-07
+
+### Added
+
+- **Typed send-error classification (`error_kind`)**: all `SendResult` failure paths in `adapter.py` and `approval.py` now populate the `error_kind` field introduced in Hermes Agent v0.19.0. This lets the gateway's delivery-obligation ledger distinguish transient network errors, forbidden/permission failures, rate-limiting, and not-found conditions instead of relying on substring matching. A new `classify_lansenger_error()` helper (in `_constants.py`) maps Lansenger's Chinese `errMsg` strings to the standard `SEND_ERROR_KINDS` vocabulary, deferring to the framework's `classify_send_error()` for connection-level and HTTP-status classification.
+
+### Changed
+
+- **Hermes Agent compatibility floor updated**: the adapter now gracefully supports Hermes v0.17 through v0.20+. The `classify_send_error` import is optional — on Hermes <0.19 (which lacks typed send errors) the adapter degrades to `error_kind="unknown"` instead of failing to load.
+- Verified against Hermes Agent v0.20.0: all 184 tests pass.
+
 ## [2.9.16] - 2026-07-16
 
 ### Fixed

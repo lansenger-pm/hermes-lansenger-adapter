@@ -13,7 +13,7 @@ import httpx
 
 from gateway.platforms.base import SendResult
 
-from ._constants import API_ENDPOINTS
+from ._constants import API_ENDPOINTS, classify_lansenger_error
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class ApprovalMixin:
         # Use home_channel as fallback if owner_id not set
         target_id = self._owner_id or self._home_channel_id
         if not target_id:
-            return SendResult(success=False, error="Owner ID and home_channel not set")
+            return SendResult(success=False, error="Owner ID and home_channel not set", error_kind="unknown")
         if format == "formatText":
             return await self.send_format_text(target_id, content)
         return await self.send_text(target_id, content)
@@ -94,7 +94,7 @@ class ApprovalMixin:
         """
         token = await self._get_app_token()
         if not token:
-            return SendResult(success=False, error="No access token")
+            return SendResult(success=False, error="No access token", error_kind="unknown")
 
         is_group = self._is_group_chat(chat_id)
 
@@ -148,7 +148,7 @@ class ApprovalMixin:
             response.raise_for_status()
 
             if not response.text or len(response.text.strip()) == 0:
-                return SendResult(success=False, error="Empty API response")
+                return SendResult(success=False, error="Empty API response", error_kind="unknown")
 
             data = response.json()
             err_code = data.get("errCode", -1)
@@ -157,7 +157,7 @@ class ApprovalMixin:
                     "[Lansenger] approveCard API error: errCode=%s, errMsg=%s",
                     err_code, data.get("errMsg", ""),
                 )
-                return SendResult(success=False, error=data.get("errMsg", f"errCode={err_code}"))
+                return SendResult(success=False, error=(_e := data.get("errMsg", f"errCode={err_code}")), error_kind=classify_lansenger_error(_e or ""))
 
             msg_id = data.get("data", {}).get("msgId")
             if msg_id:
@@ -165,14 +165,14 @@ class ApprovalMixin:
                 logger.info("[Lansenger] ✅ approveCard sent — msg_id=%s", msg_id)
                 return SendResult(success=True, message_id=msg_id, raw_response=data)
             else:
-                return SendResult(success=False, error="No msgId in response")
+                return SendResult(success=False, error="No msgId in response", error_kind="unknown")
 
         except httpx.HTTPStatusError as exc:
             logger.warning("[Lansenger] approveCard HTTP %s: %s", exc.response.status_code, exc)
-            return SendResult(success=False, error=f"HTTP {exc.response.status_code}")
+            return SendResult(success=False, error=f"HTTP {exc.response.status_code}", error_kind=classify_lansenger_error(str(exc), exc))
         except Exception as exc:
             logger.warning("[Lansenger] approveCard send error: %s", exc)
-            return SendResult(success=False, error=str(exc))
+            return SendResult(success=False, error=str(exc), error_kind=classify_lansenger_error(str(exc), exc))
 
     # ── approveCard (Phase 1 — button-observation) ────────────────────────
 
@@ -187,7 +187,7 @@ class ApprovalMixin:
         """
         token = await self._get_app_token()
         if not token:
-            return SendResult(success=False, error="No access token")
+            return SendResult(success=False, error="No access token", error_kind="unknown")
 
         lang = self._get_lang(chat_id)
         approval_id = str(next(self._approval_counter))
@@ -321,7 +321,7 @@ class ApprovalMixin:
             response.raise_for_status()
 
             if not response.text or len(response.text.strip()) == 0:
-                return SendResult(success=False, error="Empty API response")
+                return SendResult(success=False, error="Empty API response", error_kind="unknown")
 
             data = response.json()
             err_code = data.get("errCode", -1)
@@ -330,7 +330,7 @@ class ApprovalMixin:
                     "[Lansenger] approveCard API error: errCode=%s, errMsg=%s",
                     err_code, data.get("errMsg", ""),
                 )
-                return SendResult(success=False, error=data.get("errMsg", f"errCode={err_code}"))
+                return SendResult(success=False, error=(_e := data.get("errMsg", f"errCode={err_code}")), error_kind=classify_lansenger_error(_e or ""))
 
             msg_id = data.get("data", {}).get("msgId")
             if msg_id:
@@ -352,16 +352,16 @@ class ApprovalMixin:
                 )
                 return SendResult(success=True, message_id=msg_id, raw_response=data)
             else:
-                return SendResult(success=False, error="No msgId in response")
+                return SendResult(success=False, error="No msgId in response", error_kind="unknown")
 
         except httpx.HTTPStatusError as exc:
             logger.warning(
                 "[Lansenger] approveCard HTTP %s: %s", exc.response.status_code, exc,
             )
-            return SendResult(success=False, error=f"HTTP {exc.response.status_code}")
+            return SendResult(success=False, error=f"HTTP {exc.response.status_code}", error_kind=classify_lansenger_error(str(exc), exc))
         except Exception as exc:
             logger.warning("[Lansenger] approveCard send error: %s", exc)
-            return SendResult(success=False, error=str(exc))
+            return SendResult(success=False, error=str(exc), error_kind=classify_lansenger_error(str(exc), exc))
 
     # ── approveCard button callback handler ────────────────────────────
 
@@ -626,7 +626,7 @@ class ApprovalMixin:
 
         token = await self._get_app_token()
         if not token:
-            return SendResult(success=False, error="No access token")
+            return SendResult(success=False, error="No access token", error_kind="unknown")
 
         try:
             url = self._build_send_url(chat_id, token)
@@ -650,11 +650,11 @@ class ApprovalMixin:
             response.raise_for_status()
 
             if not response.text or len(response.text.strip()) == 0:
-                return SendResult(success=False, error="Empty API response", retryable=True)
+                return SendResult(success=False, error="Empty API response", retryable=True, error_kind="transient")
 
             data = response.json()
             if data.get("errCode") != 0:
-                return SendResult(success=False, error=data.get("errMsg"))
+                return SendResult(success=False, error=(_e := data.get("errMsg")), error_kind=classify_lansenger_error(_e or ""))
 
             msg_id = data.get("data", {}).get("msgId")
             self._card_type_map[msg_id] = "appCard"
@@ -666,7 +666,7 @@ class ApprovalMixin:
 
         except Exception as e:
             logger.error("[Lansenger] Send appCard approval error: %s", e)
-            return SendResult(success=False, error=str(e), retryable=True)
+            return SendResult(success=False, error=str(e), retryable=True, error_kind=classify_lansenger_error(str(e), e))
 
     def _build_app_card_payload(self, chat_id: str, app_card_data: Dict[str, Any]) -> Dict[str, Any]:
         """Build the outer payload for an appCard message with correct routing."""
@@ -720,7 +720,7 @@ class ApprovalMixin:
         logger.info("[Lansenger] send_slash_confirm: chat_id=%s, title=%s, confirm_id=%s", chat_id, title, confirm_id)
         token = await self._get_app_token()
         if not token:
-            return SendResult(success=False, error="No access token")
+            return SendResult(success=False, error="No access token", error_kind="unknown")
 
         lang = self._get_lang(chat_id)
         command_name = title.strip() if title else "unknown"
@@ -774,12 +774,12 @@ class ApprovalMixin:
             response.raise_for_status()
 
             if not response.text or len(response.text.strip()) == 0:
-                return SendResult(success=False, error="Empty API response", retryable=True)
+                return SendResult(success=False, error="Empty API response", retryable=True, error_kind="transient")
 
             data = response.json()
             if data.get("errCode") != 0:
                 logger.error("[Lansenger] Slash confirm card API error: errCode=%s, errMsg=%s", data.get("errCode"), data.get("errMsg"))
-                return SendResult(success=False, error=data.get("errMsg"))
+                return SendResult(success=False, error=(_e := data.get("errMsg")), error_kind=classify_lansenger_error(_e or ""))
 
             msg_id = data.get("data", {}).get("msgId")
             logger.info("[Lansenger] Slash confirm appCard sent to %s, msgId=%s", chat_id, msg_id)
@@ -787,7 +787,7 @@ class ApprovalMixin:
 
         except Exception as e:
             logger.error("[Lansenger] Send slash confirm appCard error: %s", e)
-            return SendResult(success=False, error=str(e), retryable=True)
+            return SendResult(success=False, error=str(e), retryable=True, error_kind=classify_lansenger_error(str(e), e))
 
     async def update_approval_status(
         self, chat_id: str, message_id: str,
@@ -814,7 +814,7 @@ class ApprovalMixin:
         """
         token = await self._get_app_token()
         if not token:
-            return SendResult(success=False, error="No access token")
+            return SendResult(success=False, error="No access token", error_kind="unknown")
 
         card_type = card_type or self._card_type_map.get(message_id, "appCard")
         lang = self._get_lang(chat_id)
@@ -886,7 +886,7 @@ class ApprovalMixin:
                     "[Lansenger] Update card status failed (type=%s): errCode=%s, errMsg=%s",
                     card_type, data.get("errCode"), data.get("errMsg"),
                 )
-                return SendResult(success=False, error=data.get("errMsg"))
+                return SendResult(success=False, error=(_e := data.get("errMsg")), error_kind=classify_lansenger_error(_e or ""))
 
             logger.info(
                 "[Lansenger] Card status updated to %s (type=%s, lang=%s, choice=%s)",
@@ -896,4 +896,4 @@ class ApprovalMixin:
 
         except Exception as e:
             logger.error("[Lansenger] Update appCard status error: %s", e)
-            return SendResult(success=False, error=str(e), retryable=True)
+            return SendResult(success=False, error=str(e), retryable=True, error_kind=classify_lansenger_error(str(e), e))

@@ -51,6 +51,11 @@ except ImportError:
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.helpers import MessageDeduplicator
 from gateway.platforms.base import BasePlatformAdapter, SendResult
+try:
+    from gateway.platforms.base import classify_send_error  # Hermes v0.19+
+except ImportError:  # pragma: no cover — older Hermes without typed send errors
+    def classify_send_error(exc=None, error_text=""):
+        return "unknown"
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +75,7 @@ from ._constants import (
     INBOUND_SILENCE_TIMEOUT,
     MAX_MESSAGE_LENGTH,
     RECONNECT_BACKOFF,
+    classify_lansenger_error,
 )
 
 
@@ -522,7 +528,7 @@ class LansengerAdapter(
         """
         token = await self._get_app_token()
         if not token:
-            return SendResult(success=False, error="No access token")
+            return SendResult(success=False, error="No access token", error_kind="unknown")
 
         try:
             is_group = self._is_group_chat(chat_id)
@@ -559,14 +565,15 @@ class LansengerAdapter(
             data = response.json()
 
             if data.get("errCode") != 0:
-                return SendResult(success=False, error=data.get("errMsg"))
+                _err = data.get("errMsg")
+                return SendResult(success=False, error=_err, error_kind=classify_lansenger_error(_err or ""))
 
             msg_id = data.get("data", {}).get("msgId")
             logger.info("[Lansenger] Text message sent to %s (group=%s)", chat_id, is_group)
             return SendResult(success=True, message_id=msg_id, raw_response=data)
         except Exception as e:
             logger.error("[Lansenger] Send text error: %s", e)
-            return SendResult(success=False, error=str(e), retryable=True)
+            return SendResult(success=False, error=str(e), retryable=True, error_kind=classify_lansenger_error(str(e), e))
 
     async def send_format_text(self, chat_id: str, content: str, reminder: dict = None, ref_msg_id: str = None) -> SendResult:
             """Send a formatted text message (Markdown support), optionally with @mentions and reply ref.
@@ -583,7 +590,7 @@ class LansengerAdapter(
             """
             token = await self._get_app_token()
             if not token:
-                return SendResult(success=False, error="No access token")
+                return SendResult(success=False, error="No access token", error_kind="unknown")
 
             try:
                 is_group = self._is_group_chat(chat_id)
@@ -619,7 +626,8 @@ class LansengerAdapter(
                 data = response.json()
 
                 if data.get("errCode") != 0:
-                    return SendResult(success=False, error=data.get("errMsg"))
+                    _err = data.get("errMsg")
+                    return SendResult(success=False, error=_err, error_kind=classify_lansenger_error(_err or ""))
 
                 msg_id = data.get("data", {}).get("msgId")
                 logger.info("[Lansenger] FormatText sent to %s (group=%s, reminder=%s)",
@@ -627,7 +635,7 @@ class LansengerAdapter(
                 return SendResult(success=True, message_id=msg_id, raw_response=data)
             except Exception as e:
                 logger.error("[Lansenger] Send formatText error: %s", e, exc_info=True)
-                return SendResult(success=False, error=str(e), retryable=True)
+                return SendResult(success=False, error=str(e), retryable=True, error_kind=classify_lansenger_error(str(e), e))
 
     # -- Helper methods -----------------------------------------------------
 
