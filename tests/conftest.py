@@ -184,7 +184,20 @@ def tmp_hermes_dir(tmp_path):
 
 
 @pytest.fixture
-def make_adapter(tmp_hermes_dir):
+def make_adapter(tmp_hermes_dir, monkeypatch):
+    # The adapter falls back to LANSENGER_* environment variables when the
+    # config leaves a credential empty, so a test that asserts a
+    # missing-credential failure would inherit the ambient environment of a
+    # machine where the adapter is actually configured.  Neutralise it.
+    for var in (
+        "LANSENGER_APP_ID",
+        "LANSENGER_APP_SECRET",
+        "LANSENGER_API_GATEWAY_URL",
+        "LANSENGER_HOME_CHANNEL",
+        "LANSENGER_HOME_CHANNEL_THREAD_ID",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
     def _make(app_id="test-app-id", app_secret="test-secret", api_gateway="https://apigw.test.com", home_chat_id=None):
         extra = {
             "app_id": app_id,

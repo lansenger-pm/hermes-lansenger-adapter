@@ -40,17 +40,36 @@ class ApprovalMixin:
         self, chat_id: str, command: str, session_key: str,
         description: str = "dangerous command",
         metadata: Optional[Dict[str, Any]] = None,
+        allow_permanent: bool = True,
+        allow_session: bool = True,
+        smart_denied: bool = False,
     ) -> SendResult:
         """Send an approval card for a dangerous command.
 
         Tries approveCard first (native buttons + text instructions).
         Falls back to appCard if approveCard is not supported.
+
+        ``allow_permanent`` / ``allow_session`` / ``smart_denied`` are capability
+        flags Hermes core passes in from ``gateway/run_turn_runner.py`` (v0.21+).
+        They gate the session/always grants: a smart-denied prompt arrives with
+        both allow flags False, so only once/deny are offered.  Cores older than
+        v0.21 call this method with the first five arguments only — the flags
+        default to permissive so the signature stays backward compatible, and a
+        missing keyword can no longer push the gateway onto its text fallback.
         """
-        logger.info("[Lansenger] send_exec_approval: chat_id=%s, session=%s", chat_id, session_key[:16])
+        logger.info(
+            "[Lansenger] send_exec_approval: chat_id=%s, session=%s, "
+            "allow_session=%s, allow_permanent=%s, smart_denied=%s",
+            chat_id, session_key[:16], allow_session, allow_permanent, smart_denied,
+        )
 
         # ── Step 1: Try native approveCard ──
         try:
-            result = await self._send_approve_card(chat_id, command, description, session_key)
+            result = await self._send_approve_card(
+                chat_id, command, description, session_key,
+                allow_session=allow_session,
+                allow_permanent=allow_permanent,
+            )
             if result.success:
                 return result
             logger.info(
@@ -64,7 +83,11 @@ class ApprovalMixin:
             )
 
         # ── Step 2: Fall back to dynamic appCard ──
-        return await self._send_appcard_approval(chat_id, command, session_key, description)
+        return await self._send_appcard_approval(
+            chat_id, command, session_key, description,
+            allow_session=allow_session,
+            allow_permanent=allow_permanent,
+        )
 
     async def send_approve_card(
         self, chat_id: str, head_title: str, body_title: str,
@@ -178,12 +201,16 @@ class ApprovalMixin:
 
     async def _send_approve_card(
         self, chat_id: str, command: str, description: str, session_key: str,
+        allow_session: bool = True, allow_permanent: bool = True,
     ) -> SendResult:
         """Send a native Lansenger approveCard with clickable buttons.
 
         Encodes ``ea:{choice}:{approval_id}`` in each button's ``callbackInfo``
         field so Phase 2 can resolve the approval when button-callback data
         arrives via WebSocket.
+
+        The session/always buttons and their reply-command hints are gated by
+        ``allow_session`` / ``allow_permanent`` (Hermes core capability flags).
         """
         token = await self._get_app_token()
         if not token:
@@ -196,14 +223,12 @@ class ApprovalMixin:
         if lang == "zh":
             head_title = "⚠️ 危险命令审批"
             body_title = "以下命令需要审批才能执行"
-            body_text = (
-                f"**命令:**\n```\n{cmd_preview}\n```\n\n"
-                "**审批方式:** 点击下方按钮或回复以下命令:\n"
-                "- `/approve` — 批准执行一次\n"
-                "- `/approve session` — 本次会话有效\n"
-                "- `/approve always` — 永久允许\n"
-                "- `/deny` — 拒绝执行"
-            )
+            cmd_label = "命令"
+            hint = "**审批方式:** 点击下方按钮或回复以下命令:"
+            opt_once = "- `/approve` — 批准执行一次"
+            opt_session = "- `/approve session` — 本次会话有效"
+            opt_always = "- `/approve always` — 永久允许"
+            opt_deny = "- `/deny` — 拒绝执行"
             status_desc = "待审批"
             fields = [
                 {"key": "风险说明", "value": description},
@@ -216,14 +241,12 @@ class ApprovalMixin:
         else:
             head_title = "⚠️ Command Approval"
             body_title = "Dangerous Command Approval Request"
-            body_text = (
-                f"**Command:**\n```\n{cmd_preview}\n```\n\n"
-                "**How to approve:** Click a button below or reply:\n"
-                "- `/approve` — Execute once\n"
-                "- `/approve session` — Allow this session\n"
-                "- `/approve always` — Always allow\n"
-                "- `/deny` — Deny"
-            )
+            cmd_label = "Command"
+            hint = "**How to approve:** Click a button below or reply:"
+            opt_once = "- `/approve` — Execute once"
+            opt_session = "- `/approve session` — Allow this session"
+            opt_always = "- `/approve always` — Always allow"
+            opt_deny = "- `/deny` — Deny"
             status_desc = "Pending"
             fields = [
                 {"key": "Reason", "value": description},
@@ -233,6 +256,20 @@ class ApprovalMixin:
             btn_session = "This Session"
             btn_always = "Always"
             btn_deny = "Deny"
+
+        # Grant scope is decided by Hermes core (v0.21+), not by the adapter:
+        # a smart-denied prompt arrives with both flags False, so only
+        # once/deny are offered and the matching hints are dropped from the body.
+        reply_options = [opt_once]
+        if allow_session:
+            reply_options.append(opt_session)
+        if allow_permanent:
+            reply_options.append(opt_always)
+        reply_options.append(opt_deny)
+        body_text = (
+            f"**{cmd_label}:**\n```\n{cmd_preview}\n```\n\n"
+            f"{hint}\n" + "\n".join(reply_options)
+        )
 
         # Compute allowed approvers for group chats
         is_group = self._is_group_chat(chat_id)
@@ -244,6 +281,45 @@ class ApprovalMixin:
             for uid in self._approval_allow_from:
                 if uid not in allowed_approvers:
                     allowed_approvers.append(uid)
+
+        # Group-chat permission scope, shared by every button.  Buttons for
+        # grants the core did not offer are simply not built.
+        button_scope = (
+            {"permissionScope": {"permittedStaffs": allowed_approvers}, "prohibitedState": 1}
+            if allowed_approvers else {}
+        )
+        buttons = [
+            {
+                "text": btn_once,
+                "buttonTheme": 1,  # 主按钮 (蓝底白字)
+                "state": 0,
+                "callbackInfo": f"ea:once:{approval_id}",
+                **button_scope,
+            },
+        ]
+        if allow_session:
+            buttons.append({
+                "text": btn_session,
+                "buttonTheme": 2,  # 次按钮 (白底蓝字)
+                "state": 0,
+                "callbackInfo": f"ea:session:{approval_id}:{session_key}",
+                **button_scope,
+            })
+        if allow_permanent:
+            buttons.append({
+                "text": btn_always,
+                "buttonTheme": 3,  # 次按钮 (白底黑字)
+                "state": 0,
+                "callbackInfo": f"ea:always:{approval_id}:{session_key}",
+                **button_scope,
+            })
+        buttons.append({
+            "text": btn_deny,
+            "buttonTheme": 4,  # 警告按钮 (红色)
+            "state": 0,
+            "callbackInfo": f"ea:deny:{approval_id}",
+            **button_scope,
+        })
 
         approve_card_data = {
             "head": {
@@ -262,36 +338,7 @@ class ApprovalMixin:
                 },
                 "fields": fields,
             },
-            "buttons": [
-                {
-                    "text": btn_once,
-                    "buttonTheme": 1,  # 主按钮 (蓝底白字)
-                    "state": 0,
-                    "callbackInfo": f"ea:once:{approval_id}",
-                    **({"permissionScope": {"permittedStaffs": allowed_approvers}, "prohibitedState": 1} if allowed_approvers else {}),
-                },
-                {
-                    "text": btn_session,
-                    "buttonTheme": 2,  # 次按钮 (白底蓝字)
-                    "state": 0,
-                    "callbackInfo": f"ea:session:{approval_id}:{session_key}",
-                    **({"permissionScope": {"permittedStaffs": allowed_approvers}, "prohibitedState": 1} if allowed_approvers else {}),
-                },
-                {
-                    "text": btn_always,
-                    "buttonTheme": 3,  # 次按钮 (白底黑字)
-                    "state": 0,
-                    "callbackInfo": f"ea:always:{approval_id}:{session_key}",
-                    **({"permissionScope": {"permittedStaffs": allowed_approvers}, "prohibitedState": 1} if allowed_approvers else {}),
-                },
-                {
-                    "text": btn_deny,
-                    "buttonTheme": 4,  # 警告按钮 (红色)
-                    "state": 0,
-                    "callbackInfo": f"ea:deny:{approval_id}",
-                    **({"permissionScope": {"permittedStaffs": allowed_approvers}, "prohibitedState": 1} if allowed_approvers else {}),
-                },
-            ],
+            "buttons": buttons,
             "expireTime": self._gateway_approval_timeout + 60,  # align with Hermes core gateway_timeout + 60s buffer
         }
 
@@ -347,8 +394,9 @@ class ApprovalMixin:
                 self._save_approvals()
                 logger.info(
                     "[Lansenger] ✅ approveCard sent — approval_id=%s, msg_id=%s, trigger_sender=%s. "
-                    "Buttons: once/session/deny. Waiting for callback via WebSocket...",
+                    "Buttons: %s. Waiting for callback via WebSocket...",
                     approval_id, msg_id, trigger_sender_id[:16] if trigger_sender_id else "N/A",
+                    "/".join(b["text"] for b in buttons),
                 )
                 return SendResult(success=True, message_id=msg_id, raw_response=data)
             else:
@@ -565,6 +613,7 @@ class ApprovalMixin:
 
     async def _send_appcard_approval(
         self, chat_id: str, command: str, session_key: str, description: str,
+        allow_session: bool = True, allow_permanent: bool = True,
     ) -> SendResult:
         """Send a dynamic appCard approval card with isDynamic=True.
 
@@ -594,12 +643,12 @@ class ApprovalMixin:
             body_content = f"会话 ID: {session_key[:32]}\n命令:\n{cmd_preview}"
             status_desc = "待审批"
             signature = self._get_agent_signature("zh")
-            fields = [
-                {"key": "执行一次", "value": "/approve"},
-                {"key": "本会话有效", "value": "/approve session"},
-                {"key": "永久允许", "value": "/approve always"},
-                {"key": "拒绝执行", "value": "/deny"},
-            ]
+            fields = [{"key": "执行一次", "value": "/approve"}]
+            if allow_session:
+                fields.append({"key": "本会话有效", "value": "/approve session"})
+            if allow_permanent:
+                fields.append({"key": "永久允许", "value": "/approve always"})
+            fields.append({"key": "拒绝执行", "value": "/deny"})
         else:
             head_title = "⚠️ Command Approval"
             body_title = "Dangerous Command Approval Request"
@@ -607,12 +656,12 @@ class ApprovalMixin:
             body_content = f"Session ID: {session_key[:32]}\nCommand:\n{cmd_preview}"
             status_desc = "Pending"
             signature = self._get_agent_signature("en")
-            fields = [
-                {"key": "Execute Once", "value": "/approve"},
-                {"key": "This Session", "value": "/approve session"},
-                {"key": "Always Allow", "value": "/approve always"},
-                {"key": "Deny", "value": "/deny"},
-            ]
+            fields = [{"key": "Execute Once", "value": "/approve"}]
+            if allow_session:
+                fields.append({"key": "This Session", "value": "/approve session"})
+            if allow_permanent:
+                fields.append({"key": "Always Allow", "value": "/approve always"})
+            fields.append({"key": "Deny", "value": "/deny"})
 
         # Escape HTML in dynamic content to prevent accidental div parsing
         body_content = self._escape_html(body_content)

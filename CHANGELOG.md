@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.9.18] - 2026-09-11
+
+### Fixed
+
+- **Interactive approvals silently downgraded to text on Hermes v0.21+**: `send_exec_approval()` did not accept the `allow_permanent` / `allow_session` / `smart_denied` capability keywords that Hermes core passes from `gateway/run_turn_runner.py` (introduced with the v0.21 TurnRunner refactor). The resulting `TypeError` was caught by the gateway, which fell back to a plain-text `/approve` prompt — the native approveCard was never sent. The method now accepts the flags (defaulting to permissive, so cores older than v0.21 are unaffected) and forwards them to both card paths.
+- **Button and hint gating now follows the core's grant scope**: the session/always buttons, their reply-command hints in the approveCard body, and the appCard fallback fields are rendered only when the core offers that grant. A smart-denied prompt (both flags `False`) now shows only once/deny instead of advertising grants that cannot be honoured.
+- **Environment-independent lifecycle tests**: the two `connect()` tests asserting failure on a missing app id/secret read real `LANSENGER_*` variables from the ambient environment, so they failed on any host where the adapter is actually configured. They now isolate the environment.
+
+### Added
+
+- 8 regression tests (`tests/test_exec_approval_compat.py`) pinning the keyword signature and the button/field gating.
+
+### Verified
+
+- Verified against Hermes Agent v0.21.1: 192 tests pass.
+
 ## [2.9.17] - 2026-08-07
 
 ### Added
