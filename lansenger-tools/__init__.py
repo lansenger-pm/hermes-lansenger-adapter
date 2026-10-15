@@ -30,6 +30,7 @@ Lansenger has multiple message/card types with different capabilities:
 - lansenger_send_file:         msgType=text → file/image/video only, optional caption
 - lansenger_send_image_url:    msgType=text → image from URL, optional caption
 - lansenger_revoke_message:    retract messages (auto-detects group/DM from chat_id)
+- lansenger_reply_message:     emoji reaction on a message (server v4.6.17+, cancel supported)
 - lansenger_send_link_card:    msgType=linkCard → rich link preview card (6 required fields)
 - lansenger_send_app_articles: msgType=appArticles → multi-article card (图文卡片)
 - lansenger_send_app_card:     msgType=appCard → rich card with dynamic update support
@@ -105,6 +106,15 @@ def register(ctx):
         schema=schemas.LANSENGER_REVOKE_MESSAGE,
         handler=tools.lansenger_revoke_message,
         description="Revoke a message (pass chat_id; auto-detects group/DM)",
+        check_fn=check_available,
+    )
+
+    ctx.register_tool(
+        name="lansenger_reply_message",
+        toolset="lansenger-tools",
+        schema=schemas.LANSENGER_REPLY_MESSAGE,
+        handler=tools.lansenger_reply_message,
+        description="React to a message with an emoji (cancel supported; server v4.6.17+)",
         check_fn=check_available,
     )
 

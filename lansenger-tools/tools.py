@@ -475,6 +475,32 @@ async def _revoke_async(message_ids: list, chat_id: str = "") -> dict:
         await adapter._http_client.aclose()
 
 
+async def _reply_async(message_id: str, emoji_id: str, reply_type: int) -> dict:
+    """Async: create ephemeral adapter, emoji-reply a message, teardown."""
+    adapter = await _create_ephemeral_adapter()
+    try:
+        result = await adapter.reply_message(
+            message_id=message_id,
+            emoji_id=emoji_id,
+            reply_type=reply_type,
+        )
+
+        return {
+            "success": result.success,
+            "error": result.error,
+            "platform": "lansenger",
+            "operation": "reply",
+            "msg_id": message_id,
+            "emoji_id": emoji_id,
+            "cancelled": reply_type == 2,
+        }
+    except Exception as e:
+
+        return {"success": False, "error": str(e)}
+    finally:
+        await adapter._http_client.aclose()
+
+
 async def _send_link_card_async(chat_id: str, title: str, link: str,
                                  description: str = "", icon_link: str = "",
                                  pc_link: str = "", from_name: str = "",
@@ -852,6 +878,34 @@ def lansenger_revoke_message(args: dict, **kwargs) -> str:
 
     try:
         result = _run_async(_revoke_async(message_ids, chat_id))
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)})
+
+
+def lansenger_reply_message(args: dict, **kwargs) -> str:
+    """React to a Lansenger (蓝信) message with an emoji (server v4.6.17+).
+
+    Pass cancel=true to retract the reaction; the same emoji_id is still
+    required for cancel (the server rejects an emojiless cancel with 40060).
+    """
+    message_id = args.get("message_id", "").strip()
+    emoji_id = args.get("emoji_id", "").strip()
+    cancel = bool(args.get("cancel", False))
+
+    if not message_id:
+        return json.dumps({"error": "message_id is required"})
+    if not emoji_id:
+        return json.dumps({"error": "emoji_id is required (also required when cancel=true)"})
+
+    reply_type = 2 if cancel else 1
+
+    env_result = _check_env()
+    if "error" in env_result:
+        return json.dumps(env_result)
+
+    try:
+        result = _run_async(_reply_async(message_id, emoji_id, reply_type))
         return json.dumps(result)
     except Exception as e:
         return json.dumps({"success": False, "error": str(e)})

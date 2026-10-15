@@ -334,6 +334,37 @@ LANSENGER_REVOKE_MESSAGE = {
     },
 }
 
+LANSENGER_REPLY_MESSAGE = {
+    "name": "lansenger_reply_message",
+    "description": (
+        "React to a previously sent Lansenger (蓝信) message with an emoji reply "
+        "(requires Lansenger server v4.6.17+; older servers return NOT_SUPPORTED). "
+        "Supported emoji_id values: TYPE_THUMB (点赞), TYPE_OK (OK), TYPE_ADD_ONE (+1), "
+        "TYPE_FIREWORK (烟花), TYPE_LOVE (爱心), TYPE_DOUBT (疑问). "
+        "To retract a reaction pass cancel=true — the same emoji_id is still required "
+        "(the server rejects an emojiless cancel with 40060)."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "message_id": {
+                "type": "string",
+                "description": "Message ID to react to (e.g. from a message you sent or received)",
+            },
+            "emoji_id": {
+                "type": "string",
+                "enum": ["TYPE_THUMB", "TYPE_OK", "TYPE_ADD_ONE", "TYPE_FIREWORK", "TYPE_LOVE", "TYPE_DOUBT"],
+                "description": "Emoji reaction to set, or to clear when cancel=true",
+            },
+            "cancel": {
+                "type": "boolean",
+                "description": "Set true to retract the emoji reaction instead of adding it (emoji_id still required)",
+            },
+        },
+        "required": ["message_id", "emoji_id"],
+    },
+}
+
 LANSENGER_SEND_LINK_CARD = {
     "name": "lansenger_send_link_card",
     "description": (
