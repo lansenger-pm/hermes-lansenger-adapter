@@ -24,6 +24,7 @@ API_ENDPOINTS = {
     },
     "message": {
         "revoke": "/v1/messages/revoke",
+        "reply_create": "/v1/messages/reply/create",
         "dynamic_update": "/v1/messages/dynamic/update",
     },
     "groups": {
@@ -33,6 +34,19 @@ API_ENDPOINTS = {
         "is_in_group": "/v2/groups/{group_id}/members/is_in_group",
     },
 }
+
+
+# ── Emoji reply (Lansenger server v4.6.17+) ──────────────────────────────
+EMOJI_IDS = (
+    "TYPE_THUMB",    # 点赞
+    "TYPE_OK",       # OK
+    "TYPE_ADD_ONE",  # +1
+    "TYPE_FIREWORK",  # 烟花
+    "TYPE_LOVE",     # 爱心
+    "TYPE_DOUBT",    # 疑问
+)
+REPLY_TYPE_REPLY = 1  # set the emoji reaction
+REPLY_TYPE_CANCEL = 2  # retract it — emoji_id is still required by the server
 
 
 # ── Lansenger errMsg → SendResult.error_kind mapping ──────────────────────

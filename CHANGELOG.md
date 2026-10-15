@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.9.19] - 2026-10-15
+
+### Added
+
+- **Emoji replies (`lansenger_reply_message`)**: react to any Lansenger (蓝信) message with one of the six server-side emojis (`TYPE_THUMB` / `TYPE_OK` / `TYPE_ADD_ONE` / `TYPE_FIREWORK` / `TYPE_LOVE` / `TYPE_DOUBT`) via `POST /v1/messages/reply/create` (requires Lansenger server v4.6.17+; older servers return errCode 10000 NOT_SUPPORTED). `cancel=true` retracts the reaction — the server still requires the same `emoji_id` on cancel (errCode 40060 "emojiId is empty"), so the schema keeps it a required parameter. Unknown emojis are rejected locally before any network call.
+- New adapter method `MediaMixin.reply_message(message_id, emoji_id, reply_type=REPLY_TYPE_REPLY)` with the same shape as `revoke_message` (`SendResult`, errCode≠0 → `success=False` + server `errMsg`), plus the `_reply_async` / `lansenger_reply_message` tool layer and the `LANSENGER_REPLY_MESSAGE` schema. Seven new tests in `tests/test_reply.py`.
+
 ## [2.9.18] - 2026-09-11
 
 ### Fixed

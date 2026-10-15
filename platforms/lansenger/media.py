@@ -13,7 +13,7 @@ import httpx
 
 from gateway.platforms.base import SendResult
 
-from ._constants import API_ENDPOINTS
+from ._constants import API_ENDPOINTS, EMOJI_IDS, REPLY_TYPE_CANCEL, REPLY_TYPE_REPLY
 
 logger = logging.getLogger(__name__)
 
@@ -430,4 +430,50 @@ class MediaMixin:
             return SendResult(success=True, message_id=None, raw_response=data)
         except Exception as e:
             logger.error("[Lansenger] Revoke error: %s", e, exc_info=True)
+            return SendResult(success=False, error=str(e), retryable=True)
+
+    async def reply_message(
+        self,
+        message_id: str,
+        emoji_id: str,
+        reply_type: int = REPLY_TYPE_REPLY,
+    ) -> SendResult:
+        """React to a message with an emoji reply (Lansenger server v4.6.17+).
+
+        reply_type 1 sets the reaction, 2 retracts it.  Cancel still requires
+        emoji_id — the server rejects an emojiless cancel with errCode 40060
+        ("emojiId is empty"), so callers must always pass the emoji.
+        Older servers return errCode 10000 NOT_SUPPORTED.
+        """
+        if not message_id:
+            return SendResult(success=False, error="message_id is required")
+        if not emoji_id:
+            return SendResult(success=False, error="emoji_id is required (also required when cancelling)")
+        if emoji_id not in EMOJI_IDS:
+            return SendResult(
+                success=False,
+                error=f"invalid emoji_id: {emoji_id!r} not in {', '.join(EMOJI_IDS)}",
+            )
+        if reply_type not in (REPLY_TYPE_REPLY, REPLY_TYPE_CANCEL):
+            return SendResult(success=False, error=f"invalid reply_type: {reply_type}")
+
+        token = await self._get_app_token()
+        if not token:
+            return SendResult(success=False, error="Failed to get token")
+
+        try:
+            url = f"{self._api_gateway_url}{API_ENDPOINTS['message']['reply_create']}?app_token={token}"
+            payload = {"replyType": reply_type, "msgId": message_id, "emojiId": emoji_id}
+
+            response = await self._http_client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+
+            if data.get("errCode") != 0:
+                return SendResult(success=False, error=data.get("errMsg", "Unknown error"))
+
+            logger.info("[Lansenger] Emoji reply %s on %s (replyType=%s)", emoji_id, message_id, reply_type)
+            return SendResult(success=True, message_id=message_id, raw_response=data)
+        except Exception as e:
+            logger.error("[Lansenger] Reply error: %s", e, exc_info=True)
             return SendResult(success=False, error=str(e), retryable=True)
